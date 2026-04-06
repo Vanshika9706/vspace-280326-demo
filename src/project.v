@@ -93,19 +93,19 @@ module tt_um_AnjaniKad_medical_bms (
 
     case (state)
         IDLE: begin
-            if      (any_crit)              next_state = FAULT;
-            else if (any_warn)              next_state = WARN;
+            if      (any_crit==1'b1)              next_state = FAULT;
+            else if (any_warn==1'b1)              next_state = WARN;
         end
         WARN: begin
-            if      (any_crit)              next_state = FAULT;
-            else if (hyst_done && all_safe) next_state = IDLE;
+            if      (any_crit==1'b1)              next_state = FAULT;
+            else if (hyst_done==1'b1 && all_safe==1'b1) next_state = IDLE;
         end
         FAULT: begin
-            if      (wdog_fired)            next_state = SHUTDOWN;
-            else if (safe_reset && all_safe) next_state = IDLE;
+            if      (wdog_fired==1'b1)            next_state = SHUTDOWN;
+            else if (safe_reset==1'b1 && all_safe==1'b1) next_state = IDLE;
         end
         SHUTDOWN: begin
-            if (safe_reset && all_safe)     next_state = IDLE;
+            if (safe_reset==1'b1 && all_safe==1'b1)     next_state = IDLE;
         end
     endcase
 end

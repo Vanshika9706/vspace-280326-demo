@@ -56,7 +56,7 @@ module tt_um_AnjaniKad_medical_bms (
     reg thermal_latch;
     reg [2:0] hyst_cnt;
     reg [3:0] wdog_cnt;
-    reg [2:0] hold_cnt;   // startup hold
+    reg [2:0] hold_cnt;
 
     wire hyst_done  = (hyst_cnt == 3'd7);
     wire wdog_fired = (wdog_cnt == 4'd15);
@@ -79,7 +79,7 @@ module tt_um_AnjaniKad_medical_bms (
             hold_cnt      <= 3'd0;
         end else begin
 
-            // HOLD FSM IN IDLE
+            // 🔥 HOLD FSM
             if (hold_cnt != 3'd7) begin
                 hold_cnt <= hold_cnt + 3'd1;
                 state    <= IDLE;
@@ -87,11 +87,13 @@ module tt_um_AnjaniKad_medical_bms (
                 state <= next_state;
             end
 
-            // 🔥 FINAL FIX: SAFE THERMAL LATCH
-            if (temp_flag === 1'b1)
-                thermal_latch <= 1'b1;
-            else if ((safe_reset === 1'b1) && (temp_flag === 1'b0))
-                thermal_latch <= 1'b0;
+            // 🔥 CRITICAL FIX: DO NOT UPDATE THERMAL DURING HOLD
+            if (hold_cnt == 3'd7) begin
+                if (temp_flag === 1'b1)
+                    thermal_latch <= 1'b1;
+                else if ((safe_reset === 1'b1) && (temp_flag === 1'b0))
+                    thermal_latch <= 1'b0;
+            end
 
             // hysteresis
             if ((state == WARN) && all_safe)

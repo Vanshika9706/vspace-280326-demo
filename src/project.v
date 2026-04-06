@@ -82,8 +82,10 @@ module tt_um_AnjaniKad_medical_bms (
 
     // FSM with ena (TT compliant)
     always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) state <= IDLE;
-        else if (ena) state <= next_state;
+        if (!rst_n)
+		 state <= IDLE;
+        else 
+		 state <= next_state;
     end
 
     always @(*) begin

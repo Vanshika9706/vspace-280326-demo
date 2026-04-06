@@ -34,13 +34,10 @@ module tt_um_AnjaniKad_medical_bms (
     reg [2:0] hyst_cnt;
     reg [3:0] wdog_cnt;
 
-    // 🔥 NEW: reset guard
-    reg init_done;
-
     wire hyst_done  = (hyst_cnt == 3'd7);
     wire wdog_fired = (wdog_cnt == 4'd15);
 
-    // ---------------- SAFE LOGIC ----------------
+    // ---------------- SAFE INPUT LOGIC ----------------
     wire volt_crit =
         (voltage != 4'd0) &&
         ((voltage <= 4'd1) || (voltage >= 4'd14));
@@ -71,29 +68,19 @@ module tt_um_AnjaniKad_medical_bms (
             thermal_latch <= 1'b0;
             hyst_cnt      <= 3'd0;
             wdog_cnt      <= 4'd0;
-            init_done     <= 1'b0;
         end else begin
-            init_done <= 1'b1;
+            state <= next_state;
 
-            // 🔥 BLOCK TRANSITION FOR FIRST CYCLE
-            if (!init_done)
-                state <= IDLE;
-            else
-                state <= next_state;
-
-            // thermal latch
             if (temp_flag === 1'b1)
                 thermal_latch <= 1'b1;
             else if ((safe_reset === 1'b1) && (temp_flag === 1'b0))
                 thermal_latch <= 1'b0;
 
-            // hysteresis
             if ((state == WARN) && all_safe)
                 hyst_cnt <= hyst_cnt + 3'd1;
             else
                 hyst_cnt <= 3'd0;
 
-            // watchdog
             if (state == FAULT)
                 wdog_cnt <= wdog_fired ? wdog_cnt : (wdog_cnt + 4'd1);
             else
@@ -101,32 +88,42 @@ module tt_um_AnjaniKad_medical_bms (
         end
     end
 
-    // ---------------- NEXT STATE ----------------
+    // ---------------- NEXT STATE (FIXED) ----------------
     always @(*) begin
-        next_state = state;
-
         case (state)
+
             IDLE: begin
                 if      (any_crit) next_state = FAULT;
                 else if (any_warn) next_state = WARN;
+                else               next_state = IDLE;
             end
 
             WARN: begin
                 if      (any_crit) next_state = FAULT;
                 else if (hyst_done && all_safe)
                     next_state = IDLE;
+                else
+                    next_state = WARN;
             end
 
             FAULT: begin
                 if      (wdog_fired) next_state = SHUTDOWN;
                 else if (safe_reset && all_safe)
                     next_state = IDLE;
+                else
+                    next_state = FAULT;
             end
 
             SHUTDOWN: begin
                 if (safe_reset && all_safe)
                     next_state = IDLE;
+                else
+                    next_state = SHUTDOWN;
             end
+
+            // 🔥 CRITICAL FIX
+            default: next_state = IDLE;
+
         endcase
     end
 

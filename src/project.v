@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 `default_nettype none
 
 module tt_um_AnjaniKad_medical_bms (
@@ -35,133 +36,108 @@ module tt_um_AnjaniKad_medical_bms (
     wire curr_warn = (current == 2'b01);
     wire curr_crit = current[1];
 
+    // --- Consolidated sequential block for GL reliability ---
     reg thermal_latch;
-    always @(posedge clk) begin
-        if (!rst_n)
-            thermal_latch <= 1'b0;
-        else if (temp_flag)
-            thermal_latch <= 1'b1;
-        else if (safe_reset && !temp_flag)
-            thermal_latch <= 1'b0;
-    end
+    reg [2:0] hyst_cnt;
+    reg [3:0] wdog_cnt;
+    reg [1:0] state, next_state;
 
-    wire any_crit = (volt_crit == 1'b1) |
-                (curr_crit == 1'b1) |
-                (thermal_latch == 1'b1);
-
-    wire any_warn = (volt_warn == 1'b1) |
-                (curr_warn == 1'b1);
-
-    wire all_safe = (volt_normal == 1'b1) &
-                (curr_crit == 1'b0) &
-                (curr_warn == 1'b0) &
-                (thermal_latch == 1'b0);
+    wire any_crit = volt_crit | curr_crit | thermal_latch;
+    wire any_warn = volt_warn | curr_warn;
+    wire all_safe = volt_normal & ~curr_crit & ~curr_warn & ~thermal_latch;
 
     localparam IDLE     = 2'b00;
     localparam WARN     = 2'b01;
     localparam FAULT    = 2'b10;
     localparam SHUTDOWN = 2'b11;
 
-    reg [1:0] state, next_state;
+    wire hyst_done  = (hyst_cnt == 3'd7);
+    wire wdog_fired = (wdog_cnt == 4'd15);
 
-    reg [2:0] hyst_cnt;
-    wire      hyst_done = (hyst_cnt == 3'd7);
+    // Single clocked block — all regs reset together, GL-safe
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            state         <= IDLE;
+            thermal_latch <= 1'b0;
+            hyst_cnt      <= 3'd0;
+            wdog_cnt      <= 4'd0;
+        end else if (ena) begin
+            // FSM state
+            state <= next_state;
 
-    always @(posedge clk   ) begin
-        if (!rst_n)
-            hyst_cnt <= 3'd0;
-        else if ((state == WARN) && all_safe)
-            hyst_cnt <= hyst_cnt + 3'd1;
-        else
-            hyst_cnt <= 3'd0;
+            // Thermal latch
+            if (temp_flag)
+                thermal_latch <= 1'b1;
+            else if (safe_reset && !temp_flag)
+                thermal_latch <= 1'b0;
+
+            // Hysteresis counter
+            if ((state == WARN) && all_safe)
+                hyst_cnt <= hyst_cnt + 3'd1;
+            else
+                hyst_cnt <= 3'd0;
+
+            // Watchdog counter
+            if (state == FAULT)
+                wdog_cnt <= wdog_fired ? wdog_cnt : (wdog_cnt + 4'd1);
+            else
+                wdog_cnt <= 4'd0;
+        end
     end
 
-    reg [3:0] wdog_cnt;
-    wire      wdog_fired = (wdog_cnt == 4'd15);
-
-    always @(posedge clk   ) begin
-        if (!rst_n)
-            wdog_cnt <= 4'd0;
-        else if (state == FAULT)
-            wdog_cnt <= wdog_fired ? wdog_cnt : (wdog_cnt + 4'd1);
-        else
-            wdog_cnt <= 4'd0;
-    end
-
-    // FSM with ena (TT compliant)
-    always @(posedge clk) begin
-        if (!rst_n)
-		 state <= IDLE;
-        else 
-		 state <= next_state;
-    end
-
+    // Combinational next-state logic
     always @(*) begin
-       next_state = state;   
+        case (state)
+            IDLE: begin
+                if      (any_crit)               next_state = FAULT;
+                else if (any_warn)               next_state = WARN;
+                else                             next_state = IDLE;
+            end
+            WARN: begin
+                if      (any_crit)               next_state = FAULT;
+                else if (hyst_done && all_safe)  next_state = IDLE;
+                else                             next_state = WARN;
+            end
+            FAULT: begin
+                if      (wdog_fired)             next_state = SHUTDOWN;
+                else if (safe_reset && all_safe) next_state = IDLE;
+                else                             next_state = FAULT;
+            end
+            SHUTDOWN: begin
+                if (safe_reset && all_safe)      next_state = IDLE;
+                else                             next_state = SHUTDOWN;
+            end
+            default:                             next_state = IDLE;
+        endcase
+    end
 
-    case (state)
-        IDLE: begin
-            if      (any_crit==1'b1)              next_state = FAULT;
-            else if (any_warn==1'b1)              next_state = WARN;
-        end
-        WARN: begin
-            if      (any_crit==1'b1)              next_state = FAULT;
-            else if (hyst_done==1'b1 && all_safe==1'b1) next_state = IDLE;
-        end
-        FAULT: begin
-            if      (wdog_fired==1'b1)            next_state = SHUTDOWN;
-            else if (safe_reset==1'b1 && all_safe==1'b1) next_state = IDLE;
-        end
-        SHUTDOWN: begin
-            if (safe_reset==1'b1 && all_safe==1'b1)     next_state = IDLE;
-        end
-    endcase
-end
-
-    //  IGINAL OUTPUTS (kept for meaning)
-    wire [7:0] core_out;
-    assign core_out[0]   = (state != IDLE);
-    assign core_out[1]   = (state == SHUTDOWN);
-    assign core_out[2]   = thermal_latch;
-    assign core_out[4:3] = state;
-    assign core_out[6:5] = soc;
-    assign core_out[7]   = curr_crit;
-
-    // DISPLAY LOGIC (IMPROVED)
-    wire [3:0] display_val;
-    assign display_val = {state, soc};  // 0–15 range
-
-    reg [6:0] seg;
+    // Outputs
+    wire [3:0] display_val = {state, soc};
+    reg  [6:0] seg;
 
     always @(*) begin
         case (display_val)
-            4'd0: seg = 7'b0111111;
-            4'd1: seg = 7'b0000110;
-            4'd2: seg = 7'b1011011;
-            4'd3: seg = 7'b1001111;
-            4'd4: seg = 7'b1100110;
-            4'd5: seg = 7'b1101101;
-            4'd6: seg = 7'b1111101;
-            4'd7: seg = 7'b0000111;
-            4'd8: seg = 7'b1111111;
-            4'd9: seg = 7'b1101111;
-            4'd10: seg = 7'b1110111; // A
-            4'd11: seg = 7'b1111100; // b
-            4'd12: seg = 7'b0111001; // C
-            4'd13: seg = 7'b1011110; // d
-            4'd14: seg = 7'b1111001; // E
-            4'd15: seg = 7'b1110001; // F
+            4'd0:  seg = 7'b0111111;
+            4'd1:  seg = 7'b0000110;
+            4'd2:  seg = 7'b1011011;
+            4'd3:  seg = 7'b1001111;
+            4'd4:  seg = 7'b1100110;
+            4'd5:  seg = 7'b1101101;
+            4'd6:  seg = 7'b1111101;
+            4'd7:  seg = 7'b0000111;
+            4'd8:  seg = 7'b1111111;
+            4'd9:  seg = 7'b1101111;
+            4'd10: seg = 7'b1110111;
+            4'd11: seg = 7'b1111100;
+            4'd12: seg = 7'b0111001;
+            4'd13: seg = 7'b1011110;
+            4'd14: seg = 7'b1111001;
+            4'd15: seg = 7'b1110001;
             default: seg = 7'b0000000;
         endcase
     end
 
-    // FINAL OUTPUT
     assign uo_out[6:0] = seg;
-    assign uo_out[7]   = core_out[7];
+    assign uo_out[7]   = curr_crit;
 
 endmodule
-
-
-`default_nettype none
-`timescale 1ns / 1ps
-

@@ -58,10 +58,12 @@ module tt_um_AnjaniKad_medical_bms (
     reg [2:0] hyst_cnt;
     reg [3:0] wdog_cnt;
 
+    // 🔥 NEW: startup hold counter
+    reg [2:0] hold_cnt;
+
     wire hyst_done  = (hyst_cnt == 3'd7);
     wire wdog_fired = (wdog_cnt == 4'd15);
 
-    // IMPORTANT: strict comparisons to avoid X issues
     wire any_crit = (volt_crit == 1'b1) |
                     (curr_crit == 1'b1) |
                     (thermal_latch == 1'b1);
@@ -74,18 +76,6 @@ module tt_um_AnjaniKad_medical_bms (
                     (curr_warn == 1'b0) &
                     (thermal_latch == 1'b0);
 
-    // ---------------- RESET STABILIZATION ----------------
-    reg [1:0] reset_cnt;
-
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n)
-            reset_cnt <= 2'b00;
-        else if (reset_cnt != 2'b11)
-            reset_cnt <= reset_cnt + 1;
-    end
-
-    wire init_done = reset_cnt[1];
-
     // ---------------- SEQUENTIAL ----------------
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -93,10 +83,18 @@ module tt_um_AnjaniKad_medical_bms (
             thermal_latch <= 1'b0;
             hyst_cnt      <= 3'd0;
             wdog_cnt      <= 4'd0;
+            hold_cnt      <= 3'd0;
         end else begin
-            state <= next_state;
 
-            // thermal latch (FIXED)
+            // 🔥 HOLD FSM IN IDLE FOR FIRST FEW CYCLES
+            if (hold_cnt != 3'd4) begin
+                hold_cnt <= hold_cnt + 3'd1;
+                state    <= IDLE;
+            end else begin
+                state <= next_state;
+            end
+
+            // thermal latch
             if (temp_flag == 1'b1)
                 thermal_latch <= 1'b1;
             else if ((safe_reset == 1'b1) && (temp_flag == 1'b0))
@@ -120,45 +118,41 @@ module tt_um_AnjaniKad_medical_bms (
     always @(*) begin
         next_state = IDLE;
 
-        if (init_done == 1'b0) begin
-            next_state = IDLE;
-        end else begin
-            case (state)
-                IDLE: begin
-                    if      (any_crit == 1'b1) next_state = FAULT;
-                    else if (any_warn == 1'b1) next_state = WARN;
-                    else                       next_state = IDLE;
-                end
+        case (state)
+            IDLE: begin
+                if      (any_crit == 1'b1) next_state = FAULT;
+                else if (any_warn == 1'b1) next_state = WARN;
+                else                       next_state = IDLE;
+            end
 
-                WARN: begin
-                    if      (any_crit == 1'b1) next_state = FAULT;
-                    else if ((hyst_done == 1'b1) && (all_safe == 1'b1))
-                        next_state = IDLE;
-                    else
-                        next_state = WARN;
-                end
+            WARN: begin
+                if      (any_crit == 1'b1) next_state = FAULT;
+                else if ((hyst_done == 1'b1) && (all_safe == 1'b1))
+                    next_state = IDLE;
+                else
+                    next_state = WARN;
+            end
 
-                FAULT: begin
-                    if      (wdog_fired == 1'b1) next_state = SHUTDOWN;
-                    else if ((safe_reset == 1'b1) && (all_safe == 1'b1))
-                        next_state = IDLE;
-                    else
-                        next_state = FAULT;
-                end
+            FAULT: begin
+                if      (wdog_fired == 1'b1) next_state = SHUTDOWN;
+                else if ((safe_reset == 1'b1) && (all_safe == 1'b1))
+                    next_state = IDLE;
+                else
+                    next_state = FAULT;
+            end
 
-                SHUTDOWN: begin
-                    if ((safe_reset == 1'b1) && (all_safe == 1'b1))
-                        next_state = IDLE;
-                    else
-                        next_state = SHUTDOWN;
-                end
-            endcase
-        end
+            SHUTDOWN: begin
+                if ((safe_reset == 1'b1) && (all_safe == 1'b1))
+                    next_state = IDLE;
+                else
+                    next_state = SHUTDOWN;
+            end
+        endcase
     end
 
-    // ---------------- OUTPUTS (FINAL CORRECT) ----------------
-    assign uo_out[0] = (state != IDLE);        // fault
-    assign uo_out[1] = (state == SHUTDOWN);    // shutdown
+    // ---------------- OUTPUTS ----------------
+    assign uo_out[0] = (state != IDLE);
+    assign uo_out[1] = (state == SHUTDOWN);
     assign uo_out[2] = thermal_latch;
 
     assign uo_out[3] = state[0];

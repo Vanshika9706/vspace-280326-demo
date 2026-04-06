@@ -21,34 +21,6 @@ module tt_um_AnjaniKad_medical_bms (
     wire       temp_flag  = ui_in[6];
     wire       safe_reset = ui_in[7];
 
-    // ---------------- SAFE SIGNALS ----------------
-    wire safe_temp = (temp_flag === 1'b1);
-    wire safe_reset_sig = (safe_reset === 1'b1);
-
-    // ---------------- VOLTAGE ----------------
-    wire volt_crit =
-        (voltage != 4'd0) &&
-        ((voltage <= 4'd1) || (voltage >= 4'd14));
-
-    wire volt_warn =
-        (voltage != 4'd0) &&
-        ((voltage == 4'd2)  || (voltage == 4'd3) ||
-         (voltage == 4'd12) || (voltage == 4'd13));
-
-    wire volt_normal =
-        (voltage >= 4'd4 && voltage <= 4'd11);
-
-    // ---------------- SOC ----------------
-    wire [1:0] soc =
-        (voltage <= 4'd1)  ? 2'b00 :
-        (voltage <= 4'd4)  ? 2'b01 :
-        (voltage <= 4'd10) ? 2'b10 :
-                             2'b11;
-
-    // ---------------- CURRENT ----------------
-    wire curr_warn = (current == 2'b01);
-    wire curr_crit = current[1];
-
     // ---------------- STATE ----------------
     reg [1:0] state, next_state;
 
@@ -62,24 +34,35 @@ module tt_um_AnjaniKad_medical_bms (
     reg [2:0] hyst_cnt;
     reg [3:0] wdog_cnt;
 
+    // 🔥 NEW: reset guard
+    reg init_done;
+
     wire hyst_done  = (hyst_cnt == 3'd7);
     wire wdog_fired = (wdog_cnt == 4'd15);
 
-    // 🔥 X-SAFE LOGIC
-    wire any_crit =
-        (volt_crit == 1'b1) ||
-        (curr_crit == 1'b1) ||
-        (thermal_latch == 1'b1);
+    // ---------------- SAFE LOGIC ----------------
+    wire volt_crit =
+        (voltage != 4'd0) &&
+        ((voltage <= 4'd1) || (voltage >= 4'd14));
 
-    wire any_warn =
-        (volt_warn == 1'b1) ||
-        (curr_warn == 1'b1);
+    wire volt_warn =
+        (voltage != 4'd0) &&
+        ((voltage == 4'd2)  || (voltage == 4'd3) ||
+         (voltage == 4'd12) || (voltage == 4'd13));
 
-    wire all_safe =
-        (volt_normal == 1'b1) &&
-        (curr_crit == 1'b0) &&
-        (curr_warn == 1'b0) &&
-        (thermal_latch == 1'b0);
+    wire volt_normal =
+        (voltage >= 4'd4 && voltage <= 4'd11);
+
+    wire curr_warn = (current == 2'b01);
+    wire curr_crit = current[1];
+
+    wire any_crit = volt_crit | curr_crit | thermal_latch;
+    wire any_warn = volt_warn | curr_warn;
+
+    wire all_safe = volt_normal &&
+                    !curr_crit &&
+                    !curr_warn &&
+                    !thermal_latch;
 
     // ---------------- SEQUENTIAL ----------------
     always @(posedge clk or negedge rst_n) begin
@@ -88,13 +71,20 @@ module tt_um_AnjaniKad_medical_bms (
             thermal_latch <= 1'b0;
             hyst_cnt      <= 3'd0;
             wdog_cnt      <= 4'd0;
+            init_done     <= 1'b0;
         end else begin
-            state <= next_state;
+            init_done <= 1'b1;
 
-            // SAFE thermal latch
-            if (safe_temp)
+            // 🔥 BLOCK TRANSITION FOR FIRST CYCLE
+            if (!init_done)
+                state <= IDLE;
+            else
+                state <= next_state;
+
+            // thermal latch
+            if (temp_flag === 1'b1)
                 thermal_latch <= 1'b1;
-            else if (safe_reset_sig && !safe_temp)
+            else if ((safe_reset === 1'b1) && (temp_flag === 1'b0))
                 thermal_latch <= 1'b0;
 
             // hysteresis
@@ -129,16 +119,23 @@ module tt_um_AnjaniKad_medical_bms (
 
             FAULT: begin
                 if      (wdog_fired) next_state = SHUTDOWN;
-                else if (safe_reset_sig && all_safe)
+                else if (safe_reset && all_safe)
                     next_state = IDLE;
             end
 
             SHUTDOWN: begin
-                if (safe_reset_sig && all_safe)
+                if (safe_reset && all_safe)
                     next_state = IDLE;
             end
         endcase
     end
+
+    // ---------------- SOC ----------------
+    wire [1:0] soc =
+        (voltage <= 4'd1)  ? 2'b00 :
+        (voltage <= 4'd4)  ? 2'b01 :
+        (voltage <= 4'd10) ? 2'b10 :
+                             2'b11;
 
     // ---------------- OUTPUTS ----------------
     assign uo_out[0] = (state != IDLE);

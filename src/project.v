@@ -15,67 +15,75 @@ module tt_um_AnjaniKad_medical_bms (
     assign uio_out = 8'b0;
     assign uio_oe  = 8'b0;
 
+    // ---------------- INPUTS ----------------
     wire [3:0] voltage    = ui_in[3:0];
     wire [1:0] current    = ui_in[5:4];
     wire       temp_flag  = ui_in[6];
     wire       safe_reset = ui_in[7];
 
+    // ---------------- VOLTAGE LOGIC ----------------
     wire valid_voltage = (voltage != 4'd0);
 
-wire volt_crit = valid_voltage &&
-                 ((voltage <= 4'd1) | (voltage >= 4'd14));
+    wire volt_crit = valid_voltage &&
+                     ((voltage <= 4'd1) | (voltage >= 4'd14));
 
-wire volt_warn = valid_voltage &&
-                 ((voltage == 4'd2)  | (voltage == 4'd3) |
-                  (voltage == 4'd12) | (voltage == 4'd13));
+    wire volt_warn = valid_voltage &&
+                     ((voltage == 4'd2)  | (voltage == 4'd3) |
+                      (voltage == 4'd12) | (voltage == 4'd13));
+
     wire volt_normal = valid_voltage && ~volt_crit & ~volt_warn;
 
-    reg [1:0] soc;
-	reg init_done;
+    // ---------------- SOC ----------------
+    wire [1:0] soc =
+        (voltage <= 4'd1)  ? 2'b00 :
+        (voltage <= 4'd4)  ? 2'b01 :
+        (voltage <= 4'd10) ? 2'b10 :
+                             2'b11;
 
-always @(posedge clk or negedge rst_n) begin
-    if (!rst_n)
-        init_done <= 1'b0;
-    else
-        init_done <= 1'b1;
-end
-    always @(*) begin
-        if      (voltage <= 4'd1)  soc = 2'b00;
-        else if (voltage <= 4'd4)  soc = 2'b01;
-        else if (voltage <= 4'd10) soc = 2'b10;
-        else                       soc = 2'b11;
-    end
-
+    // ---------------- CURRENT ----------------
     wire curr_warn = (current == 2'b01);
     wire curr_crit = current[1];
 
-    // --- Consolidated sequential block for GL reliability ---
-    reg thermal_latch;
-    reg [2:0] hyst_cnt;
-    reg [3:0] wdog_cnt;
+    // ---------------- STATE ----------------
     reg [1:0] state, next_state;
-
-    wire any_crit = volt_crit | curr_crit | thermal_latch;
-    wire any_warn = volt_warn | curr_warn;
-    wire all_safe = volt_normal & ~curr_crit & ~curr_warn & ~thermal_latch;
 
     localparam IDLE     = 2'b00;
     localparam WARN     = 2'b01;
     localparam FAULT    = 2'b10;
     localparam SHUTDOWN = 2'b11;
 
+    // ---------------- INTERNAL REGS ----------------
+    reg thermal_latch;
+    reg [2:0] hyst_cnt;
+    reg [3:0] wdog_cnt;
+
     wire hyst_done  = (hyst_cnt == 3'd7);
     wire wdog_fired = (wdog_cnt == 4'd15);
 
-    // Single clocked block — all regs reset together, GL-safe
+    wire any_crit = volt_crit | curr_crit | thermal_latch;
+    wire any_warn = volt_warn | curr_warn;
+    wire all_safe = volt_normal & ~curr_crit & ~curr_warn & ~thermal_latch;
+
+    // ---------------- RESET STABILIZATION ----------------
+    reg [1:0] reset_cnt;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            reset_cnt <= 2'b00;
+        else if (reset_cnt != 2'b11)
+            reset_cnt <= reset_cnt + 1;
+    end
+
+    wire init_done = reset_cnt[1];   // active after 2 cycles
+
+    // ---------------- SEQUENTIAL LOGIC ----------------
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             state         <= IDLE;
             thermal_latch <= 1'b0;
             hyst_cnt      <= 3'd0;
             wdog_cnt      <= 4'd0;
-        end else  begin
-            // FSM state
+        end else begin
             state <= next_state;
 
             // Thermal latch
@@ -84,13 +92,13 @@ end
             else if (safe_reset && !temp_flag)
                 thermal_latch <= 1'b0;
 
-            // Hysteresis counter
+            // Hysteresis
             if ((state == WARN) && all_safe)
                 hyst_cnt <= hyst_cnt + 3'd1;
             else
                 hyst_cnt <= 3'd0;
 
-            // Watchdog counter
+            // Watchdog
             if (state == FAULT)
                 wdog_cnt <= wdog_fired ? wdog_cnt : (wdog_cnt + 4'd1);
             else
@@ -98,49 +106,48 @@ end
         end
     end
 
-    // Combinational next-state logic
+    // ---------------- NEXT STATE ----------------
     always @(*) begin
-	next_state= IDLE;
-		if (!init_done) begin
         next_state = IDLE;
-    end else begin
-        
-        case (state)
-            IDLE: begin
-                if      (any_crit)               next_state = FAULT;
-                else if (any_warn)               next_state = WARN;
-                else                             next_state = IDLE;
-            end
-            WARN: begin
-                if      (any_crit)               next_state = FAULT;
-                else if (hyst_done && all_safe)  next_state = IDLE;
-                else                             next_state = WARN;
-            end
-            FAULT: begin
-                if      (wdog_fired)             next_state = SHUTDOWN;
-                else if (safe_reset && all_safe) next_state = IDLE;
-                else                             next_state = FAULT;
-            end
-            SHUTDOWN: begin
-                if (safe_reset && all_safe)      next_state = IDLE;
-                else                             next_state = SHUTDOWN;
-            end
-            default:                             next_state = IDLE;
-        endcase
+
+        if (!init_done) begin
+            next_state = IDLE;   //  
+        end else begin
+            case (state)
+                IDLE: begin
+                    if      (any_crit)               next_state = FAULT;
+                    else if (any_warn)               next_state = WARN;
+                    else                             next_state = IDLE;
+                end
+                WARN: begin
+                    if      (any_crit)               next_state = FAULT;
+                    else if (hyst_done && all_safe)  next_state = IDLE;
+                    else                             next_state = WARN;
+                end
+                FAULT: begin
+                    if      (wdog_fired)             next_state = SHUTDOWN;
+                    else if (safe_reset && all_safe) next_state = IDLE;
+                    else                             next_state = FAULT;
+                end
+                SHUTDOWN: begin
+                    if (safe_reset && all_safe)      next_state = IDLE;
+                    else                             next_state = SHUTDOWN;
+                end
+            endcase
+        end
     end
-	end
 
-    // --- OUTPUTS (MATCH TESTBENCH FORMAT) ---
-wire fault    = (state != IDLE);
-wire shutdown = (state == SHUTDOWN);
-wire thermal  = thermal_latch;
-wire overcurr = curr_crit;
+    // ---------------- OUTPUTS ----------------
+    wire fault    = (state != IDLE);
+    wire shutdown = (state == SHUTDOWN);
+    wire thermal  = thermal_latch;
+    wire overcurr = curr_crit;
 
-assign uo_out[0]   = fault;
-assign uo_out[1]   = shutdown;
-assign uo_out[2]   = thermal;
-assign uo_out[4:3] = state;
-assign uo_out[6:5] = soc;
-assign uo_out[7]   = overcurr;  
+    assign uo_out[0]   = fault;
+    assign uo_out[1]   = shutdown;
+    assign uo_out[2]   = thermal;
+    assign uo_out[4:3] = state;
+    assign uo_out[6:5] = soc;
+    assign uo_out[7]   = overcurr;
 
 endmodule

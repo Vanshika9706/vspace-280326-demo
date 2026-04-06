@@ -111,33 +111,17 @@ module tt_um_AnjaniKad_medical_bms (
         endcase
     end
 
-    // Outputs
-    wire [3:0] display_val = {state, soc};
-    reg  [6:0] seg;
+    // --- OUTPUTS (MATCH TESTBENCH FORMAT) ---
+wire fault    = (state != IDLE);
+wire shutdown = (state == SHUTDOWN);
+wire thermal  = thermal_latch;
+wire overcurr = curr_crit;
 
-    always @(*) begin
-        case (display_val)
-            4'd0:  seg = 7'b0111111;
-            4'd1:  seg = 7'b0000110;
-            4'd2:  seg = 7'b1011011;
-            4'd3:  seg = 7'b1001111;
-            4'd4:  seg = 7'b1100110;
-            4'd5:  seg = 7'b1101101;
-            4'd6:  seg = 7'b1111101;
-            4'd7:  seg = 7'b0000111;
-            4'd8:  seg = 7'b1111111;
-            4'd9:  seg = 7'b1101111;
-            4'd10: seg = 7'b1110111;
-            4'd11: seg = 7'b1111100;
-            4'd12: seg = 7'b0111001;
-            4'd13: seg = 7'b1011110;
-            4'd14: seg = 7'b1111001;
-            4'd15: seg = 7'b1110001;
-            default: seg = 7'b0000000;
-        endcase
-    end
-
-    assign uo_out[6:0] = seg;
-    assign uo_out[7]   = curr_crit;
+assign uo_out[0]   = fault;
+assign uo_out[1]   = shutdown;
+assign uo_out[2]   = thermal;
+assign uo_out[4:3] = state;
+assign uo_out[6:5] = soc;
+assign uo_out[7]   = overcurr;  
 
 endmodule

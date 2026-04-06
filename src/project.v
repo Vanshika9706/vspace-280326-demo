@@ -138,16 +138,19 @@ module tt_um_AnjaniKad_medical_bms (
     end
 
     // ---------------- OUTPUTS ----------------
-    wire fault    = (state != IDLE);
-    wire shutdown = (state == SHUTDOWN);
-    wire thermal  = thermal_latch;
-    wire overcurr = curr_crit;
+   // --- OUTPUTS (FINAL CORRECT) ---
+assign uo_out[0] = (state != IDLE);        // fault
+assign uo_out[1] = (state == SHUTDOWN);    // shutdown
+assign uo_out[2] = thermal_latch;
 
-    assign uo_out[0]   = fault;
-    assign uo_out[1]   = shutdown;
-    assign uo_out[2]   = thermal;
-    assign uo_out[4:3] = state;
-    assign uo_out[6:5] = soc;
-    assign uo_out[7]   = overcurr;
+// STATE (bitwise)
+assign uo_out[3] = state[0];
+assign uo_out[4] = state[1];
 
+// SOC (bitwise)
+assign uo_out[5] = soc[0];
+assign uo_out[6] = soc[1];
+
+// OVERCURRENT
+assign uo_out[7] = curr_crit;
 endmodule

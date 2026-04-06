@@ -87,29 +87,26 @@ module tt_um_AnjaniKad_medical_bms (
     end
 
     always @(*) begin
-        case (state)
-            IDLE: begin
-                if      (any_crit)              next_state = FAULT;
-                else if (any_warn)              next_state = WARN;
-                else                            next_state = IDLE;
-            end
-            WARN: begin
-                if      (any_crit)              next_state = FAULT;
-                else if (hyst_done && all_safe) next_state = IDLE;
-                else                            next_state = WARN;
-            end
-            FAULT: begin
-                if      (wdog_fired)            next_state = SHUTDOWN;
-                else if (safe_reset && all_safe) next_state = IDLE;
-                else                            next_state = FAULT;
-            end
-            SHUTDOWN: begin
-                if (safe_reset && all_safe)     next_state = IDLE;
-                else                            next_state = SHUTDOWN;
-            end
-            default:                            next_state = IDLE;
-        endcase
-    end
+       next_state = IDLE;   
+
+    case (state)
+        IDLE: begin
+            if      (any_crit)              next_state = FAULT;
+            else if (any_warn)              next_state = WARN;
+        end
+        WARN: begin
+            if      (any_crit)              next_state = FAULT;
+            else if (hyst_done && all_safe) next_state = IDLE;
+        end
+        FAULT: begin
+            if      (wdog_fired)            next_state = SHUTDOWN;
+            else if (safe_reset && all_safe) next_state = IDLE;
+        end
+        SHUTDOWN: begin
+            if (safe_reset && all_safe)     next_state = IDLE;
+        end
+    endcase
+end
 
     // ORIGINAL OUTPUTS (kept for meaning)
     wire [7:0] core_out;

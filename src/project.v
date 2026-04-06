@@ -21,8 +21,11 @@ module tt_um_AnjaniKad_medical_bms (
     wire       temp_flag  = ui_in[6];
     wire       safe_reset = ui_in[7];
 
-    // ---------------- VOLTAGE FIX (CRITICAL) ----------------
-    // Treat voltage=0 as INVALID → NOT critical
+    // ---------------- SAFE SIGNALS ----------------
+    wire safe_temp = (temp_flag === 1'b1);
+    wire safe_reset_sig = (safe_reset === 1'b1);
+
+    // ---------------- VOLTAGE ----------------
     wire volt_crit =
         (voltage != 4'd0) &&
         ((voltage <= 4'd1) || (voltage >= 4'd14));
@@ -62,13 +65,21 @@ module tt_um_AnjaniKad_medical_bms (
     wire hyst_done  = (hyst_cnt == 3'd7);
     wire wdog_fired = (wdog_cnt == 4'd15);
 
-    wire any_crit = volt_crit | curr_crit | thermal_latch;
-    wire any_warn = volt_warn | curr_warn;
+    // 🔥 X-SAFE LOGIC
+    wire any_crit =
+        (volt_crit == 1'b1) ||
+        (curr_crit == 1'b1) ||
+        (thermal_latch == 1'b1);
 
-    wire all_safe = volt_normal &&
-                    !curr_crit &&
-                    !curr_warn &&
-                    !thermal_latch;
+    wire any_warn =
+        (volt_warn == 1'b1) ||
+        (curr_warn == 1'b1);
+
+    wire all_safe =
+        (volt_normal == 1'b1) &&
+        (curr_crit == 1'b0) &&
+        (curr_warn == 1'b0) &&
+        (thermal_latch == 1'b0);
 
     // ---------------- SEQUENTIAL ----------------
     always @(posedge clk or negedge rst_n) begin
@@ -81,9 +92,9 @@ module tt_um_AnjaniKad_medical_bms (
             state <= next_state;
 
             // SAFE thermal latch
-            if (temp_flag === 1'b1)
+            if (safe_temp)
                 thermal_latch <= 1'b1;
-            else if ((safe_reset === 1'b1) && (temp_flag === 1'b0))
+            else if (safe_reset_sig && !safe_temp)
                 thermal_latch <= 1'b0;
 
             // hysteresis
@@ -118,12 +129,12 @@ module tt_um_AnjaniKad_medical_bms (
 
             FAULT: begin
                 if      (wdog_fired) next_state = SHUTDOWN;
-                else if (safe_reset && all_safe)
+                else if (safe_reset_sig && all_safe)
                     next_state = IDLE;
             end
 
             SHUTDOWN: begin
-                if (safe_reset && all_safe)
+                if (safe_reset_sig && all_safe)
                     next_state = IDLE;
             end
         endcase

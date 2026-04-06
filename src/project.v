@@ -36,7 +36,7 @@ module tt_um_AnjaniKad_medical_bms (
     wire curr_crit = current[1];
 
     reg thermal_latch;
-    always @(posedge clk or negedge rst_n) begin
+    always @(posedge clk) begin
         if (!rst_n)
             thermal_latch <= 1'b0;
         else if (temp_flag)
@@ -59,7 +59,7 @@ module tt_um_AnjaniKad_medical_bms (
     reg [2:0] hyst_cnt;
     wire      hyst_done = (hyst_cnt == 3'd7);
 
-    always @(posedge clk or negedge rst_n) begin
+    always @(posedge clk   ) begin
         if (!rst_n)
             hyst_cnt <= 3'd0;
         else if ((state == WARN) && all_safe)
@@ -71,7 +71,7 @@ module tt_um_AnjaniKad_medical_bms (
     reg [3:0] wdog_cnt;
     wire      wdog_fired = (wdog_cnt == 4'd15);
 
-    always @(posedge clk or negedge rst_n) begin
+    always @(posedge clk   ) begin
         if (!rst_n)
             wdog_cnt <= 4'd0;
         else if (state == FAULT)
@@ -81,7 +81,7 @@ module tt_um_AnjaniKad_medical_bms (
     end
 
     // FSM with ena (TT compliant)
-    always @(posedge clk or negedge rst_n) begin
+    always @(posedge clk) begin
         if (!rst_n)
 		 state <= IDLE;
         else 
@@ -110,7 +110,7 @@ module tt_um_AnjaniKad_medical_bms (
     endcase
 end
 
-    // ORIGINAL OUTPUTS (kept for meaning)
+    //  IGINAL OUTPUTS (kept for meaning)
     wire [7:0] core_out;
     assign core_out[0]   = (state != IDLE);
     assign core_out[1]   = (state == SHUTDOWN);

@@ -45,9 +45,17 @@ module tt_um_AnjaniKad_medical_bms (
             thermal_latch <= 1'b0;
     end
 
-    wire any_crit = volt_crit | curr_crit | thermal_latch;
-    wire any_warn = volt_warn | curr_warn;
-    wire all_safe = volt_normal & ~curr_crit & ~curr_warn & ~thermal_latch;
+    wire any_crit = (volt_crit == 1'b1) |
+                (curr_crit == 1'b1) |
+                (thermal_latch == 1'b1);
+
+    wire any_warn = (volt_warn == 1'b1) |
+                (curr_warn == 1'b1);
+
+    wire all_safe = (volt_normal == 1'b1) &
+                (curr_crit == 1'b0) &
+                (curr_warn == 1'b0) &
+                (thermal_latch == 1'b0);
 
     localparam IDLE     = 2'b00;
     localparam WARN     = 2'b01;

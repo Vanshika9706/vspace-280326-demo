@@ -66,7 +66,7 @@ wire volt_warn = valid_voltage &&
             thermal_latch <= 1'b0;
             hyst_cnt      <= 3'd0;
             wdog_cnt      <= 4'd0;
-        end else if (ena) begin
+        end else  begin
             // FSM state
             state <= next_state;
 
@@ -92,6 +92,7 @@ wire volt_warn = valid_voltage &&
 
     // Combinational next-state logic
     always @(*) begin
+	next_state= IDLE;
         case (state)
             IDLE: begin
                 if      (any_crit)               next_state = FAULT;

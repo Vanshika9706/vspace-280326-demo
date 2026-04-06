@@ -60,7 +60,7 @@ module tt_um_AnjaniKad_medical_bms (
     wire hyst_done  = (hyst_cnt == 3'd7);
     wire wdog_fired = (wdog_cnt == 4'd15);
 
-    wire any_crit = volt_crit | curr_crit | thermal_latch;
+    wire any_crit = 1'b0;   // TEMP DEBUG
     wire any_warn = volt_warn | curr_warn;
     wire all_safe = volt_normal & ~curr_crit & ~curr_warn & ~thermal_latch;
 

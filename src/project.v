@@ -89,7 +89,7 @@ module tt_um_AnjaniKad_medical_bms (
     end
 
     always @(*) begin
-       next_state = IDLE;   
+       next_state = state;   
 
     case (state)
         IDLE: begin

@@ -21,17 +21,19 @@ module tt_um_AnjaniKad_medical_bms (
     wire       temp_flag  = ui_in[6];
     wire       safe_reset = ui_in[7];
 
-    // ---------------- VOLTAGE ----------------
-    wire valid_voltage = (voltage != 4'd0);
+    // ---------------- VOLTAGE FIX (CRITICAL) ----------------
+    // Treat voltage=0 as INVALID → NOT critical
+    wire volt_crit =
+        (voltage != 4'd0) &&
+        ((voltage <= 4'd1) || (voltage >= 4'd14));
 
-    wire volt_crit = valid_voltage &&
-                     ((voltage <= 4'd1) || (voltage >= 4'd14));
+    wire volt_warn =
+        (voltage != 4'd0) &&
+        ((voltage == 4'd2)  || (voltage == 4'd3) ||
+         (voltage == 4'd12) || (voltage == 4'd13));
 
-    wire volt_warn = valid_voltage &&
-                     ((voltage == 4'd2)  || (voltage == 4'd3) ||
-                      (voltage == 4'd12) || (voltage == 4'd13));
-
-    wire volt_normal = valid_voltage && (!volt_crit && !volt_warn);
+    wire volt_normal =
+        (voltage >= 4'd4 && voltage <= 4'd11);
 
     // ---------------- SOC ----------------
     wire [1:0] soc =
@@ -56,7 +58,6 @@ module tt_um_AnjaniKad_medical_bms (
     reg thermal_latch;
     reg [2:0] hyst_cnt;
     reg [3:0] wdog_cnt;
-    reg [2:0] hold_cnt;
 
     wire hyst_done  = (hyst_cnt == 3'd7);
     wire wdog_fired = (wdog_cnt == 4'd15);
@@ -76,24 +77,14 @@ module tt_um_AnjaniKad_medical_bms (
             thermal_latch <= 1'b0;
             hyst_cnt      <= 3'd0;
             wdog_cnt      <= 4'd0;
-            hold_cnt      <= 3'd0;
         end else begin
+            state <= next_state;
 
-            // 🔥 HOLD FSM
-            if (hold_cnt != 3'd7) begin
-                hold_cnt <= hold_cnt + 3'd1;
-                state    <= IDLE;
-            end else begin
-                state <= next_state;
-            end
-
-            // 🔥 CRITICAL FIX: DO NOT UPDATE THERMAL DURING HOLD
-            if (hold_cnt == 3'd7) begin
-                if (temp_flag === 1'b1)
-                    thermal_latch <= 1'b1;
-                else if ((safe_reset === 1'b1) && (temp_flag === 1'b0))
-                    thermal_latch <= 1'b0;
-            end
+            // SAFE thermal latch
+            if (temp_flag === 1'b1)
+                thermal_latch <= 1'b1;
+            else if ((safe_reset === 1'b1) && (temp_flag === 1'b0))
+                thermal_latch <= 1'b0;
 
             // hysteresis
             if ((state == WARN) && all_safe)
@@ -111,36 +102,29 @@ module tt_um_AnjaniKad_medical_bms (
 
     // ---------------- NEXT STATE ----------------
     always @(*) begin
-        next_state = IDLE;
+        next_state = state;
 
         case (state)
             IDLE: begin
                 if      (any_crit) next_state = FAULT;
                 else if (any_warn) next_state = WARN;
-                else               next_state = IDLE;
             end
 
             WARN: begin
                 if      (any_crit) next_state = FAULT;
                 else if (hyst_done && all_safe)
                     next_state = IDLE;
-                else
-                    next_state = WARN;
             end
 
             FAULT: begin
                 if      (wdog_fired) next_state = SHUTDOWN;
                 else if (safe_reset && all_safe)
                     next_state = IDLE;
-                else
-                    next_state = FAULT;
             end
 
             SHUTDOWN: begin
                 if (safe_reset && all_safe)
                     next_state = IDLE;
-                else
-                    next_state = SHUTDOWN;
             end
         endcase
     end

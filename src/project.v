@@ -31,6 +31,14 @@ wire volt_warn = valid_voltage &&
     wire volt_normal = valid_voltage && ~volt_crit & ~volt_warn;
 
     reg [1:0] soc;
+	reg init_done;
+
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n)
+        init_done <= 1'b0;
+    else
+        init_done <= 1'b1;
+end
     always @(*) begin
         if      (voltage <= 4'd1)  soc = 2'b00;
         else if (voltage <= 4'd4)  soc = 2'b01;
@@ -93,6 +101,10 @@ wire volt_warn = valid_voltage &&
     // Combinational next-state logic
     always @(*) begin
 	next_state= IDLE;
+		if (!init_done) begin
+        next_state = IDLE;
+    end else begin
+        
         case (state)
             IDLE: begin
                 if      (any_crit)               next_state = FAULT;
@@ -116,6 +128,7 @@ wire volt_warn = valid_voltage &&
             default:                             next_state = IDLE;
         endcase
     end
+	end
 
     // --- OUTPUTS (MATCH TESTBENCH FORMAT) ---
 wire fault    = (state != IDLE);

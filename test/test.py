@@ -1,5 +1,3 @@
-updated test.py:
-
 
 import cocotb
 from cocotb.clock import Clock

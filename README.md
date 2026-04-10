@@ -56,13 +56,13 @@ The design is highly optimized for ASIC manufacturing, maximizing safety logic w
 
 | Functional Block | Estimated Gate Count |
 | :--- | :--- |
-| **Voltage & SOC Logic** | ~35 Gates |
+| **Voltage & SOC Logic** | ~135 Gates |
 | **Safety FSM** | ~95 Gates |
 | **Watchdog Timer (4-bit)** | ~55 Gates |
 | **Hysteresis Counter (3-bit)** | ~45 Gates |
 | **Thermal & Current Logic** | ~30 Gates |
 | **Interface & Glue Logic** | ~90 Gates |
-| **Total Complexity** | **~350–450 Gates** |
+| **Total Complexity** | **~450–550 Gates** |
 
 ---
 
